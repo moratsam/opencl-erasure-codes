@@ -9,7 +9,7 @@ import (
 	"golang.org/x/xerrors"
 )
 
-type OpenCL struct {
+type OpenCLPU struct {
 	context	*cl.Context	
 	queue		*cl.CommandQueue
 
@@ -17,7 +17,7 @@ type OpenCL struct {
 	log_table	[]byte
 }
 
-func NewOpenCL() (*OpenCL, error) {
+func NewOpenCLPU() (*OpenCLPU, error) {
 	// Get platforms.
 	platforms, err := cl.GetPlatforms()
 	if err != nil {
@@ -33,7 +33,7 @@ func NewOpenCL() (*OpenCL, error) {
 	if len(devices) == 0 {
 		return nil, wrapErr("", xerrors.New("GetDevices returned 0 devices"))
 	}
-	fmt.Println("Using: " + devices[0].Name(), ", type: ", devices[0].Type().String(), ", with openclc version: ", devices[0].OpenCLCVersion())
+	fmt.Println("Using: " + devices[0].Name(), ", type: ", devices[0].Type().String(), ", with openclc version: ", devices[0].OpenCLPUCVersion())
 
 	// Create device context & command queue.
 	context, err := cl.CreateContext([]*cl.Device{devices[0]})
@@ -46,13 +46,13 @@ func NewOpenCL() (*OpenCL, error) {
 	}
 
 	// TODO init tables.
-	return &OpenCL{
+	return &OpenCLPU{
 		context: context,
 		queue:	queue,
 	}, nil
 }
 
-func (c *OpenCL) enqueueArr(arr []byte) (*cl.MemObject, error) {
+func (c *OpenCLPU) enqueueArr(arr []byte) (*cl.MemObject, error) {
 	elem_size := int(unsafe.Sizeof(arr[0]))
 	arr_ptr := unsafe.Pointer(&arr[0])
 	arr_buffer, err := c.context.CreateEmptyBuffer(cl.MemReadOnly, elem_size*len(arr))
