@@ -1,6 +1,7 @@
 package vanilla
 
 import (
+	"sync"
 	
 	u "github.com/moratsam/opencl-erasure-codes/utils"
 )
@@ -9,7 +10,7 @@ type VanillaPU struct {
 }
 
 func NewVanillaPU() *VanillaPU {
-	return &VanillaPU
+	return &VanillaPU{}
 }
 
 func (v *VanillaPU) Encode(cauchy [][]byte, data []byte) ([][]byte, error) {
@@ -19,7 +20,7 @@ func (v *VanillaPU) Encode(cauchy [][]byte, data []byte) ([][]byte, error) {
 
 	enc := make([][]byte, n+k)
 	for i := range enc {
-		enc[i] := make([]byte, n_words)
+		enc[i] = make([]byte, n_words)
 	}
 
 	// Create function for encoding a single shard.
@@ -47,16 +48,18 @@ func (v *VanillaPU) Encode(cauchy [][]byte, data []byte) ([][]byte, error) {
 func (v *VanillaPU) Decode(inv, enc [][]byte) ([]byte, error){
 	n := len(enc)
 	n_words := len(enc[0])
-	data := make([]byte, n*n_words)
+	data := make([]byte, 0, n*n_words)
 
-	for word_ix := range n_words {
+	for word_ix:=0; word_ix<n_words; word_ix++ { // For every n-word of encrypted data
 		enc_word := make([]byte, n) // Take one byte from each shard to get an encrypted word.
 		for i:=0; i<n; i++ {
 			enc_word[i] = enc[i][word_ix]
 		}
 		data_word := decodeWord(inv, enc_word)
-		data[n*word_ix:(1+n)*word_ix] = data_word[:] //TODO does this werk?
+		data = append(data, data_word...) //TODO does this werk?
 	}
+
+	return data, nil
 }
 
 func decodeWord(inv [][]byte, enc []byte) []byte{

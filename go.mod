@@ -1,4 +1,4 @@
-module opencl-erasure-codes
+module github.com/moratsam/opencl-erasure-codes
 
 go 1.18
 

@@ -17,31 +17,13 @@ func CreateCauchy(k, n byte) [][]byte{
 	return mat
 }
 
-//create an inverse of the cauchy submatrix corresponding to row indexes in row_indexes.
-func CreateInverse(mat [][]byte, row_indexes []int) [][]byte {
-	cauchy := createCauchySubmatrix(mat, row_indexes)
+//create an inverse of the cauchy matrix.
+func Invert(cauchy [][]byte) [][]byte {
 	getLU(cauchy)
 	return invertLU(cauchy)
 }
 
 //-----------------------------------------
-
-//from the cauchy matrix mat, select only rows from row_indexes
-func createCauchySubmatrix(mat [][]byte, row_indexes []int) [][]byte {
-	n := len(mat[0])
-	submat := make([][]byte, n) //create matrix for cauchy
-	for i := range submat{
-		submat[i] = make([]byte, n)
-	}
-
-	for i := range submat { //populate it with rows from whole cauchy matrix
-		submat[i] = mat[row_indexes[i]][:]
-	}
-
-	return submat
-}
-
-
 
 func getLU(mat [][]byte) {
 	dim := byte(len( mat[0] ))
