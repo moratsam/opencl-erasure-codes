@@ -4,7 +4,7 @@ import (
 	"os"
 	"io"
 
-	u "github.com/moratsam/opencl-erasure-codes/utils"
+	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
 func CreateFile(filepath string) (*os.File, error) {

@@ -1,13 +1,14 @@
 package codec
 
 import (
-	_"fmt"
+	"fmt"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/moratsam/opencl-erasure-codes/io"
 	proc_unit "github.com/moratsam/opencl-erasure-codes/pu"
-	u "github.com/moratsam/opencl-erasure-codes/utils"
+	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
 const CHUNK_SIZE = 32*1000
@@ -54,7 +55,9 @@ func (c *Codec) Encode(k, n byte, filepath string) error {
 		return err
 	}
 
+	var now, proc, read, writ time.Time
 	for cnt:=0;;cnt++{
+		now = time.Now()
 		// Read chunk of input file.
 		var chunk []byte
 		if cnt == 0 { // First chunk may need to be padded. 
@@ -69,18 +72,26 @@ func (c *Codec) Encode(k, n byte, filepath string) error {
 		if len(chunk) == 0 { // EOF
 			break
 		}
+		read=read.Add(time.Since(now))
+		now = time.Now()
 
 		// Encode chunk.
 		enc, err := c.pu.Encode(mat, chunk)
 		if err != nil {
 			return err
 		}
+		proc=proc.Add(time.Since(now))
 
+		now = time.Now()
 		// Write it to shards.
 		if err := toShards(shards, enc); err != nil {
 			return err
 		}
+		writ=writ.Add(time.Since(now))
 	}
+	fmt.Println("enc read", read.Sub(time.Time{}))
+	fmt.Println("enc proc", proc.Sub(time.Time{}))
+	fmt.Println("enc writ", writ.Sub(time.Time{}))
 	return nil
 }
 
@@ -107,9 +118,11 @@ func (c *Codec) Decode(shard_paths []string, outpath string) error {
 	}
 	defer f.Close()
 
+	var now, proc, read, writ time.Time
 	stop:
 	for cnt:=0;;cnt++{
 		// Read chunk of sharded data.
+		now = time.Now()
 		chunk := make([][]byte, len(shards))
 		for i,shard := range shards {
 			chunk[i], err = io.ReadFrom(shard, chunk_size)
@@ -120,6 +133,8 @@ func (c *Codec) Decode(shard_paths []string, outpath string) error {
 				break stop
 			}
 		}
+		read=read.Add(time.Since(now))
+		now = time.Now()
 
 		// Decode chunk.
 		dec, err := c.pu.Decode(mat, chunk)
@@ -130,12 +145,18 @@ func (c *Codec) Decode(shard_paths []string, outpath string) error {
 		if cnt == 0 {
 			dec = dec[padding:]
 		}
+		proc=proc.Add(time.Since(now))
 
+		now = time.Now()
 		// Remove padding from first decoded chunk.
 		// Write chunk to the output file.
 		if err := io.WriteTo(f, dec); err != nil {
 			return err
 		}
+		writ=writ.Add(time.Since(now))
 	}
+	fmt.Println("\ndec read", read.Sub(time.Time{}))
+	fmt.Println("dec proc", proc.Sub(time.Time{}))
+	fmt.Println("dec writ", writ.Sub(time.Time{}))
 	return nil
 }

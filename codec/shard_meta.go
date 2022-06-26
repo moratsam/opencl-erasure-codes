@@ -5,7 +5,7 @@ import (
 	"sort"
 
 	"github.com/moratsam/opencl-erasure-codes/io"
-	u "github.com/moratsam/opencl-erasure-codes/utils"
+	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
 type shardMeta struct {

@@ -1,4 +1,4 @@
-package utils
+package util
 
 // Here basic operations on polynomials over the galois field 2^8 are implemented.
 
@@ -15,18 +15,10 @@ func GetTables() ([]byte, []byte) {
 }
 
 func Add(a, b byte) byte {
-	if ! tables_initialised {
-		init_tables()
-		tables_initialised = true
-	}
 	return a^b
 }
 
 func Sub(a, b byte) byte {
-	if ! tables_initialised {
-		init_tables()
-		tables_initialised = true
-	}
 	return a^b
 }
 

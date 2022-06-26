@@ -1,4 +1,4 @@
-package utils
+package util
 
 //create cauchy matrix of dimensions (n+k)xn
 //every n rows suffice to reconstruct the data

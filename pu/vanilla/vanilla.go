@@ -1,9 +1,10 @@
 package vanilla
 
 import (
+	"fmt"
 	"sync"
 	
-	u "github.com/moratsam/opencl-erasure-codes/utils"
+	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
 type VanillaPU struct {
@@ -42,6 +43,7 @@ func (v *VanillaPU) Encode(cauchy [][]byte, data []byte) ([][]byte, error) {
 	}
 	wg.Wait()
 
+	fmt.Println(enc)
 	return enc, nil
 }
 
