@@ -1,7 +1,6 @@
 package vanilla
 
 import (
-	"fmt"
 	"sync"
 	
 	u "github.com/moratsam/opencl-erasure-codes/util"
@@ -43,7 +42,6 @@ func (v *VanillaPU) Encode(cauchy [][]byte, data []byte) ([][]byte, error) {
 	}
 	wg.Wait()
 
-	fmt.Println(enc)
 	return enc, nil
 }
 
@@ -58,7 +56,7 @@ func (v *VanillaPU) Decode(inv, enc [][]byte) ([]byte, error){
 			enc_word[i] = enc[i][word_ix]
 		}
 		data_word := decodeWord(inv, enc_word)
-		data = append(data, data_word...) //TODO does this werk?
+		data = append(data, data_word...)
 	}
 
 	return data, nil

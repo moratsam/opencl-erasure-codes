@@ -61,53 +61,56 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 	return &OpenCLPU{context, queue, exp_table, log_table}, nil
 }
 
-func (c *OpenCLPU) Decode(mat, enc [][]byte) ([]byte, error) {
-	return nil, nil
-}
-
-func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
-	fmt.Println("\n\n\n")
+func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
+	//fmt.Println("\n\n\n")
 	n := byte(len(mat[0]))
-	k := byte(len(mat))-n
-	n_words := len(data)/int(n)
-	fmt.Println(len(data))
+	n_words := len(data[0])
 
-	fmt.Println("mat", mat)
-	// Flatten the cauchy matrix by appending rows.
-	flat_mat := make([]byte, 0, int(n+k)*int(n))
-	for i:=0; i<int(n+k); i++ {
+	//fmt.Println("mat", mat)
+	// Flatten the inverted cauchy submatrix by appending rows.
+	flat_mat := make([]byte, 0, int(n)*int(n))
+	for i:=0; i<int(n); i++ {
 		for j:=0; j<int(n); j++ {
 			flat_mat = append(flat_mat, mat[i][j])
 		}
 	}
-	fmt.Println("flat mat", flat_mat)
-	fmt.Println("data", data)
+	//fmt.Println("flat mat", flat_mat)
+
+	//fmt.Println("data", data)
+	// Flatten the enc data from shards by appending rows (one shard after another).
+	flat_data := make([]byte, 0, int(n)*n_words)
+	for i:=0; i<int(n); i++ {
+		for j:=0; j<n_words; j++ {
+			flat_data = append(flat_data, data[i][j])
+		}
+	}
+	//fmt.Println("flat_data", flat_data)
 
 	// Allocate go-side storage for loading the output from the OpenCL program.
-	output := make([]byte, int(n+k)*n_words)
+	output := make([]byte, int(n)*n_words)
+	//fmt.Println("len output", len(output))
 
 	// Enqueue input buffers.
 	buf_exp_table, err := c.enqueueArr(c.exp_table)
 	if err != nil {
 		return nil, u.WrapErr("enqueue exp_table", err)
 	}
+	defer buf_exp_table.Release()
 	buf_log_table, err := c.enqueueArr(c.log_table)
 	if err != nil {
 		return nil, u.WrapErr("enqueue log_table", err)
 	}
+	defer buf_log_table.Release()
 	buf_mat, err := c.enqueueArr(flat_mat)
 	if err != nil {
 		return nil, u.WrapErr("enqueue mat", err)
 	}
-	buf_data, err := c.enqueueArr(data)
+	defer buf_mat.Release()
+	buf_data, err := c.enqueueArr(flat_data)
 	if err != nil {
 		return nil, u.WrapErr("enqueue data", err)
 	}
-	fmt.Println("len output", len(output))
-	//buf_n, err := c.enqueueByte(n)
-	if err != nil {
-		return nil, u.WrapErr("enqueue n", err)
-	}
+	defer buf_data.Release()
 
 	// Create output buffer.
 	byte_size := int(unsafe.Sizeof(n))
@@ -115,6 +118,96 @@ func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
 	if err != nil {
 		return nil, u.WrapErr("create output buffer", err)
 	}
+	defer buf_output.Release()
+
+	// Create kernel.
+	kernel, err := c.createKernel("decode")
+	if err != nil {
+		return nil, u.WrapErr("create kernel", err)
+	}
+
+	// Set kernel args.
+	if err := kernel.SetArgs(buf_exp_table, buf_log_table, buf_mat, buf_data, n, buf_output); err != nil {
+		return nil, u.WrapErr("set args", err)
+	}
+
+	// Enqueue kernel.
+	if _, err := c.queue.EnqueueNDRangeKernel(kernel, nil, []int{1, n_words}, []int{1, 1}, nil); err != nil {
+		return nil, u.WrapErr("enqueue kernel", err)
+	}
+
+	// Block until queue is finished.
+	if err := c.queue.Finish(); err != nil {
+		return nil, u.WrapErr("enqueue kernel", err)
+	}
+
+	// Copy data from OpenCL's output buffer to the go output array.
+	outputPtr := unsafe.Pointer(&output[0])
+	if _, err := c.queue.EnqueueReadBuffer(buf_output, true, 0, byte_size*len(output), outputPtr, nil); err != nil {
+		return nil, u.WrapErr("reading data from buffer", err)
+	}
+
+	buf_exp_table.Release()
+	buf_log_table.Release()
+	buf_mat.Release()
+	buf_data.Release()
+	buf_output.Release()
+
+	//fmt.Println("output", output)
+	return output, nil
+}
+
+func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
+	//fmt.Println("\n\n\n")
+	n := byte(len(mat[0]))
+	k := byte(len(mat))-n
+	n_words := len(data)/int(n)
+	//fmt.Println(len(data))
+
+	//fmt.Println("mat", mat)
+	// Flatten the cauchy matrix by appending rows.
+	flat_mat := make([]byte, 0, int(n+k)*int(n))
+	for i:=0; i<int(n+k); i++ {
+		for j:=0; j<int(n); j++ {
+			flat_mat = append(flat_mat, mat[i][j])
+		}
+	}
+	//fmt.Println("flat mat", flat_mat)
+	//fmt.Println("data", data)
+
+	// Allocate go-side storage for loading the output from the OpenCL program.
+	output := make([]byte, int(n+k)*n_words)
+	//fmt.Println("len output", len(output))
+
+	// Enqueue input buffers.
+	buf_exp_table, err := c.enqueueArr(c.exp_table)
+	if err != nil {
+		return nil, u.WrapErr("enqueue exp_table", err)
+	}
+	defer buf_exp_table.Release()
+	buf_log_table, err := c.enqueueArr(c.log_table)
+	if err != nil {
+		return nil, u.WrapErr("enqueue log_table", err)
+	}
+	defer buf_log_table.Release()
+	buf_mat, err := c.enqueueArr(flat_mat)
+	if err != nil {
+		return nil, u.WrapErr("enqueue mat", err)
+	}
+	defer buf_mat.Release()
+	buf_data, err := c.enqueueArr(data)
+	if err != nil {
+		return nil, u.WrapErr("enqueue data", err)
+	}
+	defer buf_data.Release()
+
+	// Create output buffer.
+	byte_size := int(unsafe.Sizeof(n))
+	buf_output, err := c.context.CreateEmptyBuffer(cl.MemReadOnly, byte_size*len(output))
+	if err != nil {
+		return nil, u.WrapErr("create output buffer", err)
+	}
+	defer buf_output.Release()
 
 	// Create kernel.
 	kernel, err := c.createKernel("encode")
@@ -144,19 +237,19 @@ func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
 	}
 
 	// Transform output into shard format.
-	fmt.Println("gpu output", output)
+	//fmt.Println("gpu output", output)
 	enc := make([][]byte, int(n+k))
-	fmt.Println("n+k", n+k)
+	//fmt.Println("n+k", n+k)
 	for i := range enc {
 		enc[i] = make([]byte, n_words)
 	}
-	fmt.Println("enc dim:", len(enc), len(enc[0]))
+	//fmt.Println("enc dim:", len(enc), len(enc[0]))
 	for i := range enc {
 		for word_ix:=0; word_ix<n_words; word_ix++ {
 			enc[i][word_ix] = output[i*n_words + word_ix]
 		}
 	}
-	fmt.Println("sharded", enc)
+	//fmt.Println("sharded", enc)
 
 	return enc, nil
 }
@@ -194,22 +287,6 @@ func (c *OpenCLPU) enqueueArr(arr []byte) (*cl.MemObject, error) {
 		return nil, u.WrapErr("create buffer", err)
 	}
 	_, err = c.queue.EnqueueWriteBuffer(buffer, true, 0, elem_size*len(arr), ptr, nil)
-	if err != nil {
-		return nil, u.WrapErr("enqueue buffer", err)
-	}
-
-	return buffer, nil
-}
-
-func (c *OpenCLPU) enqueueByte(b byte) (*cl.MemObject, error) {
-	elem_size := int(unsafe.Sizeof(b))
-	fmt.Println("byte size", elem_size)
-	ptr := unsafe.Pointer(&b)
-	buffer, err := c.context.CreateEmptyBuffer(cl.MemReadOnly, elem_size*1)
-	if err != nil {
-		return nil, u.WrapErr("create buffer", err)
-	}
-	_, err = c.queue.EnqueueWriteBuffer(buffer, true, 0, elem_size*1, ptr, nil)
 	if err != nil {
 		return nil, u.WrapErr("enqueue buffer", err)
 	}
