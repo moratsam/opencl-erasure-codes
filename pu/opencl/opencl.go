@@ -13,16 +13,18 @@ import (
 
 var (
 	//go:embed util.cl
-	util string
+	util_source string
 	//go:embed kernel_encode.cl
-	kernel_encode string
+	kernel_encode_source string
 	//go:embed kernel_decode.cl
-	kernel_decode string
+	kernel_decode_source string
 )
 
 type OpenCLPU struct {
-	context	*cl.Context	
-	queue		*cl.CommandQueue
+	context			*cl.Context	
+	queue				*cl.CommandQueue
+	kernel_decode	*cl.Kernel
+	kernel_encode	*cl.Kernel
 
 	exp_table	[]byte
 	log_table	[]byte
@@ -44,7 +46,7 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 	if len(devices) == 0 {
 		return nil, u.WrapErr("", xerrors.New("GetDevices returned 0 devices"))
 	}
-	fmt.Println("Using: " + devices[0].Name(), ", type: ", devices[0].Type().String(), ", with openclc version: ", devices[0].OpenCLCVersion())
+	fmt.Println("Using device: " + devices[0].Name(), ", type: ", devices[0].Type().String(), ", with openclc version: ", devices[0].OpenCLCVersion())
 
 	// Create device context & command queue.
 	context, err := cl.CreateContext([]*cl.Device{devices[0]})
@@ -58,7 +60,27 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 
 	// Get exp and log tables for faster multiplication and division.
 	exp_table, log_table := u.GetTables()
-	return &OpenCLPU{context, queue, exp_table, log_table}, nil
+
+	pu := &OpenCLPU{
+		context: 	context,
+		queue:		queue,
+		exp_table:	exp_table,
+		log_table:	log_table,
+	}
+
+	// Create kernels.
+	kernel_decode, err := pu.createKernel("decode")
+	if err != nil {
+		return nil, u.WrapErr("create decode kernel", err)
+	}
+	kernel_encode, err := pu.createKernel("encode")
+	if err != nil {
+		return nil, u.WrapErr("create encode kernel", err)
+	}
+	pu.kernel_decode = kernel_decode
+	pu.kernel_encode = kernel_encode
+
+	return pu, nil
 }
 
 func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
@@ -90,68 +112,9 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 	output := make([]byte, int(n)*n_words)
 	//fmt.Println("len output", len(output))
 
-	// Enqueue input buffers.
-	buf_exp_table, err := c.enqueueArr(c.exp_table)
-	if err != nil {
-		return nil, u.WrapErr("enqueue exp_table", err)
-	}
-	defer buf_exp_table.Release()
-	buf_log_table, err := c.enqueueArr(c.log_table)
-	if err != nil {
-		return nil, u.WrapErr("enqueue log_table", err)
-	}
-	defer buf_log_table.Release()
-	buf_mat, err := c.enqueueArr(flat_mat)
-	if err != nil {
-		return nil, u.WrapErr("enqueue mat", err)
-	}
-	defer buf_mat.Release()
-	buf_data, err := c.enqueueArr(flat_data)
-	if err != nil {
-		return nil, u.WrapErr("enqueue data", err)
-	}
-	defer buf_data.Release()
-
-	// Create output buffer.
-	byte_size := int(unsafe.Sizeof(n))
-	buf_output, err := c.context.CreateEmptyBuffer(cl.MemReadOnly, byte_size*len(output))
-	if err != nil {
-		return nil, u.WrapErr("create output buffer", err)
-	}
-	defer buf_output.Release()
-
-	// Create kernel.
-	kernel, err := c.createKernel("decode")
-	if err != nil {
-		return nil, u.WrapErr("create kernel", err)
-	}
-
-	// Set kernel args.
-	if err := kernel.SetArgs(buf_exp_table, buf_log_table, buf_mat, buf_data, n, buf_output); err != nil {
-		return nil, u.WrapErr("set args", err)
-	}
-
-	// Enqueue kernel.
-	if _, err := c.queue.EnqueueNDRangeKernel(kernel, nil, []int{1, n_words}, []int{1, 1}, nil); err != nil {
+	if err := c.runKernel("decode", flat_mat, flat_data, output, n, []int{1, n_words}, []int{1, 1}); err != nil{
 		return nil, u.WrapErr("enqueue kernel", err)
 	}
-
-	// Block until queue is finished.
-	if err := c.queue.Finish(); err != nil {
-		return nil, u.WrapErr("enqueue kernel", err)
-	}
-
-	// Copy data from OpenCL's output buffer to the go output array.
-	outputPtr := unsafe.Pointer(&output[0])
-	if _, err := c.queue.EnqueueReadBuffer(buf_output, true, 0, byte_size*len(output), outputPtr, nil); err != nil {
-		return nil, u.WrapErr("reading data from buffer", err)
-	}
-
-	buf_exp_table.Release()
-	buf_log_table.Release()
-	buf_mat.Release()
-	buf_data.Release()
-	buf_output.Release()
 
 	//fmt.Println("output", output)
 	return output, nil
@@ -179,61 +142,9 @@ func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
 	output := make([]byte, int(n+k)*n_words)
 	//fmt.Println("len output", len(output))
 
-	// Enqueue input buffers.
-	buf_exp_table, err := c.enqueueArr(c.exp_table)
-	if err != nil {
-		return nil, u.WrapErr("enqueue exp_table", err)
-	}
-	defer buf_exp_table.Release()
-	buf_log_table, err := c.enqueueArr(c.log_table)
-	if err != nil {
-		return nil, u.WrapErr("enqueue log_table", err)
-	}
-	defer buf_log_table.Release()
-	buf_mat, err := c.enqueueArr(flat_mat)
-	if err != nil {
-		return nil, u.WrapErr("enqueue mat", err)
-	}
-	defer buf_mat.Release()
-	buf_data, err := c.enqueueArr(data)
-	if err != nil {
-		return nil, u.WrapErr("enqueue data", err)
-	}
-	defer buf_data.Release()
 
-	// Create output buffer.
-	byte_size := int(unsafe.Sizeof(n))
-	buf_output, err := c.context.CreateEmptyBuffer(cl.MemReadOnly, byte_size*len(output))
-	if err != nil {
-		return nil, u.WrapErr("create output buffer", err)
-	}
-	defer buf_output.Release()
-
-	// Create kernel.
-	kernel, err := c.createKernel("encode")
-	if err != nil {
-		return nil, u.WrapErr("create kernel", err)
-	}
-
-	// Set kernel args.
-	if err := kernel.SetArgs(buf_exp_table, buf_log_table, buf_mat, buf_data, n, buf_output); err != nil {
-		return nil, u.WrapErr("set args", err)
-	}
-
-	// Enqueue kernel.
-	if _, err := c.queue.EnqueueNDRangeKernel(kernel, nil, []int{int(n+k), n_words}, []int{1, 1}, nil); err != nil {
+	if err := c.runKernel("encode", flat_mat, data, output, n, []int{int(n+k), n_words}, []int{1, 1}); err != nil{
 		return nil, u.WrapErr("enqueue kernel", err)
-	}
-
-	// Block until queue is finished.
-	if err := c.queue.Finish(); err != nil {
-		return nil, u.WrapErr("enqueue kernel", err)
-	}
-
-	// Copy data from OpenCL's output buffer to the go output array.
-	outputPtr := unsafe.Pointer(&output[0])
-	if _, err := c.queue.EnqueueReadBuffer(buf_output, true, 0, byte_size*len(output), outputPtr, nil); err != nil {
-		return nil, u.WrapErr("reading data from buffer", err)
 	}
 
 	// Transform output into shard format.
@@ -254,12 +165,74 @@ func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
 	return enc, nil
 }
 
+func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byte, global_work_size, local_work_size []int) error {
+	byte_size := int(unsafe.Sizeof(n))
+	var kernel *cl.Kernel
+	if kernel_name == "decode" {
+		kernel = c.kernel_decode
+	} else {
+		kernel = c.kernel_encode
+	}
+
+	// Enqueue input buffers.
+	buf_exp_table, err := c.enqueueArr(c.exp_table)
+	if err != nil {
+		return u.WrapErr("enqueue exp_table", err)
+	}
+	defer buf_exp_table.Release()
+	buf_log_table, err := c.enqueueArr(c.log_table)
+	if err != nil {
+		return u.WrapErr("enqueue log_table", err)
+	}
+	defer buf_log_table.Release()
+	buf_mat, err := c.enqueueArr(mat)
+	if err != nil {
+		return u.WrapErr("enqueue mat", err)
+	}
+	defer buf_mat.Release()
+	buf_data, err := c.enqueueArr(data)
+	if err != nil {
+		return u.WrapErr("enqueue data", err)
+	}
+	defer buf_data.Release()
+
+	// Create output buffer.
+	buf_output, err := c.context.CreateEmptyBuffer(cl.MemReadOnly, byte_size*len(output))
+	if err != nil {
+		return u.WrapErr("create output buffer", err)
+	}
+	defer buf_output.Release()
+
+	// Set kernel args.
+	if err := kernel.SetArgs(buf_exp_table, buf_log_table, buf_mat, buf_data, n, buf_output); err != nil {
+		return u.WrapErr("set args", err)
+	}
+
+	// Enqueue kernel.
+	if _, err := c.queue.EnqueueNDRangeKernel(kernel, nil, global_work_size, local_work_size, nil); err != nil {
+		return u.WrapErr("enqueue kernel", err)
+	}
+
+	// Block until queue is finished.
+	if err := c.queue.Finish(); err != nil {
+		return u.WrapErr("enqueue kernel", err)
+	}
+
+	// Copy data from OpenCL's output buffer to the go output array.
+	outputPtr := unsafe.Pointer(&output[0])
+	if _, err := c.queue.EnqueueReadBuffer(buf_output, true, 0, byte_size*len(output), outputPtr, nil); err != nil {
+		return u.WrapErr("reading data from buffer", err)
+	}
+
+	return nil
+}
+
 func (c *OpenCLPU) createKernel(name string) (*cl.Kernel, error) {
 	var kernel_source string
 	if name == "decode" {
-		kernel_source = util + kernel_decode
+		kernel_source = util_source + kernel_decode_source
 	} else {
-		kernel_source = util + kernel_encode
+		kernel_source = util_source + kernel_encode_source
 	}
 
 	program, err := c.context.CreateProgramWithSource([]string{kernel_source})

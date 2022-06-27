@@ -11,7 +11,7 @@ import (
 	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
-const CHUNK_SIZE = 32*100
+const CHUNK_SIZE = 32*100000
 
 
 type Codec struct{
@@ -35,7 +35,6 @@ func (c *Codec) Encode(k, n byte, filepath string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Println("in size", fsize)
 	padding := byte((int64(n) - (fsize % int64(n))) % int64(n))
 
 	// Create Cauchy matrix.
@@ -160,10 +159,5 @@ func (c *Codec) Decode(shard_paths []string, outpath string) error {
 	fmt.Println("dec proc", proc.Sub(time.Time{}))
 	fmt.Println("dec writ", writ.Sub(time.Time{}))
 
-	fsize, err :=  io.FileSize(outpath)
-	if err != nil {
-		return err
-	}
-	fmt.Println("out size", fsize)
 	return nil
 }
