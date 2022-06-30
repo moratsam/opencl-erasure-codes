@@ -1,8 +1,7 @@
 kernel void encode(global uchar *exp_table, global uchar *log_table, global uchar *mat, global uchar *data, uchar n, global uchar *output) {
+	int gid0 = get_global_id(0);
 	int gid1 = get_global_id(1);
-	int lid0 = get_local_id(0);
 	int max_gid1 = get_global_size(1);
-	int max_lid0 = get_local_size(0);
 	/*
 	if (gid0 == 1 && gid1==1) {
 		printf("lol: %d\n", n);
@@ -14,10 +13,10 @@ kernel void encode(global uchar *exp_table, global uchar *log_table, global ucha
 
 	uchar res = 0;
 	for (int c=0; c<n; c++){
-		res = add(res, mul(mat[n*lid0 + c], data[n*gid1+c], exp_table, log_table));
+		res = add(res, mul(mat[n*gid0 + c], data[n*gid1+c], exp_table, log_table));
 	}
 
-	output[lid0*max_gid1 + gid1] = res;
+	output[gid0*max_gid1+gid1] = res;
 
 	/*
 	if (gid0==0 && gid1==1) {

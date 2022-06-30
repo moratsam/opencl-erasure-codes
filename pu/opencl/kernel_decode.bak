@@ -1,7 +1,9 @@
 kernel void encode(global uchar *exp_table, global uchar *log_table, global uchar *mat, global uchar *data, uchar n, global uchar *output) {
+	int gid0 = get_global_id(0);
 	int gid1 = get_global_id(1);
-	int lid0 = get_local_id(0);
 	int max_gid1 = get_global_size(1);
+	int lid0 = get_local_id(0);
+	int lid1 = get_local_id(1);
 	int max_lid0 = get_local_size(0);
 	/*
 	if (gid0 == 1 && gid1==1) {
@@ -12,12 +14,22 @@ kernel void encode(global uchar *exp_table, global uchar *log_table, global ucha
 	}
 	*/
 
-	uchar res = 0;
-	for (int c=0; c<n; c++){
-		res = add(res, mul(mat[n*lid0 + c], data[n*gid1+c], exp_table, log_table));
+	int k = 3;
+	local uchar ress[(3+4)*4];
+	ress[lid0*max_lid0 + lid1] = mul(mat[n*lid0+ lid1], data[n*gid1+lid1], exp_table, log_table);
+
+	barrier(CLK_LOCAL_MEM_FENCE);
+
+	if (lid1 == 0) {
+		// For each of (k+n) rows make the sum.
+		uchar res = ress[lid0*max_lid0];
+		for (int i=1; i<n; i++){
+			res = add(res, ress[lid0*max_lid0 + i]);
+		}
+		//ress[lid0*max_lid0] = res;
+		output[lid0*max_lid0+gid1] = res;
 	}
 
-	output[lid0*max_gid1 + gid1] = res;
 
 	/*
 	if (gid0==0 && gid1==1) {

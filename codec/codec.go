@@ -11,7 +11,7 @@ import (
 	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
-const CHUNK_SIZE = 32*100000
+const CHUNK_SIZE = 32*1000000
 
 
 type Codec struct{
@@ -89,7 +89,7 @@ func (c *Codec) Encode(k, n byte, filepath string) error {
 		}
 		writ=writ.Add(time.Since(now))
 	}
-	fmt.Println("enc read", read.Sub(time.Time{}))
+	fmt.Println("\nenc read", read.Sub(time.Time{}))
 	fmt.Println("enc proc", proc.Sub(time.Time{}))
 	fmt.Println("enc writ", writ.Sub(time.Time{}))
 	return nil

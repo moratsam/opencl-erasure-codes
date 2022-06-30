@@ -20,16 +20,14 @@ var (
 	kernel_decode_source string
 )
 
-const local_dim1 int = 32;
-
 type OpenCLPU struct {
 	context			*cl.Context	
 	queue				*cl.CommandQueue
 	kernel_decode	*cl.Kernel
 	kernel_encode	*cl.Kernel
 
-	exp_table	[]byte
-	log_table	[]byte
+	buf_exp_table *cl.MemObject
+	buf_log_table *cl.MemObject
 }
 
 func NewOpenCLPU() (*OpenCLPU, error) {
@@ -48,10 +46,10 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 	if len(devices) == 0 {
 		return nil, u.WrapErr("", xerrors.New("GetDevices returned 0 devices"))
 	}
-	/*
+
+	// Print device info.
 	device := devices[0]
 	fmt.Println("i\nUsing device:")
-
 	info := []struct{name string; value interface{}}{
 		{"name", device.Name()},
 		{"type", device.Type()},
@@ -87,7 +85,7 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 			}
 		}(i.name, i.value)
 	}
-	*/
+
 	// Create device context & command queue.
 	context, err := cl.CreateContext([]*cl.Device{devices[0]})
 	if err != nil {
@@ -98,14 +96,9 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 		return nil, u.WrapErr("create command queue", err)
 	}
 
-	// Get exp and log tables for faster multiplication and division.
-	exp_table, log_table := u.GetTables()
-
 	pu := &OpenCLPU{
 		context: 	context,
 		queue:		queue,
-		exp_table:	exp_table,
-		log_table:	log_table,
 	}
 
 	// Create kernels.
@@ -117,6 +110,34 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 	if err != nil {
 		return nil, u.WrapErr("create encode kernel", err)
 	}
+
+	// Get exp and log tables for faster multiplication and division.
+	exp_table, log_table := u.GetTables()
+
+	// Enqueue & Set the constant kernel args (exp_table and log_table).
+	buf_exp_table, err := pu.enqueueArr(exp_table)
+	if err != nil {
+		return nil, u.WrapErr("enqueue exp_table", err)
+	}
+	buf_log_table, err := pu.enqueueArr(log_table)
+	if err != nil {
+		return nil, u.WrapErr("enqueue log_table", err)
+	}
+	if err := kernel_decode.SetArg(0, buf_exp_table); err != nil {
+		return nil, u.WrapErr("set arg exp_table", err)
+	}
+	if err := kernel_decode.SetArg(1, buf_log_table); err != nil {
+		return nil, u.WrapErr("set arg log_table", err)
+	}
+	if err := kernel_encode.SetArg(0, buf_exp_table); err != nil {
+		return nil, u.WrapErr("set arg exp_table", err)
+	}
+	if err := kernel_encode.SetArg(1, buf_log_table); err != nil {
+		return nil, u.WrapErr("set arg log_table", err)
+	}
+
+	pu.buf_exp_table = buf_exp_table
+	pu.buf_log_table = buf_log_table
 	pu.kernel_decode = kernel_decode
 	pu.kernel_encode = kernel_encode
 
@@ -125,14 +146,14 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 
 func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 	//fmt.Println("\n\n\n")
-	n := len(mat[0])
+	n := byte(len(mat[0]))
 	n_words := len(data[0])
 
 	//fmt.Println("mat", mat)
 	// Flatten the inverted cauchy submatrix by appending rows.
-	flat_mat := make([]byte, 0, n*n)
-	for i:=0; i<n; i++ {
-		for j:=0; j<n; j++ {
+	flat_mat := make([]byte, 0, int(n)*int(n))
+	for i:=0; i<int(n); i++ {
+		for j:=0; j<int(n); j++ {
 			flat_mat = append(flat_mat, mat[i][j])
 		}
 	}
@@ -140,17 +161,19 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 
 	//fmt.Println("data", data)
 	// Flatten the enc data from shards by appending rows (one shard after another).
-	flat_data := make([]byte, 0, n*n_words)
-	for i:=0; i<n; i++ {
-		flat_data = append(flat_data, data[i]...)
+	flat_data := make([]byte, 0, int(n)*n_words)
+	for i:=0; i<int(n); i++ {
+		for j:=0; j<n_words; j++ {
+			flat_data = append(flat_data, data[i][j])
+		}
 	}
 	//fmt.Println("flat_data", flat_data)
 
 	// Allocate go-side storage for loading the output from the OpenCL program.
-	output := make([]byte, n*n_words)
+	output := make([]byte, int(n)*n_words)
 	//fmt.Println("len output", len(output))
 
-	if err := c.runKernel("decode", flat_mat, flat_data, output, byte(n), []int{n, n_words}, []int{n, 1}); err != nil{
+	if err := c.runKernel("decode", flat_mat, flat_data, output, n, []int{1, n_words}, []int{1, 1}); err != nil{
 		return nil, u.WrapErr("enqueue kernel", err)
 	}
 
@@ -160,43 +183,43 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 
 func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
 	//fmt.Println("\n\n\n")
-	n := len(mat[0])
-	k := len(mat)-n
-	n_words := len(data)/n
+	n := byte(len(mat[0]))
+	k := byte(len(mat))-n
+	n_words := len(data)/int(n)
 	//fmt.Println(len(data))
 
 	//fmt.Println("mat", mat)
 	// Flatten the cauchy matrix by appending rows.
-	flat_mat := make([]byte, 0, (n+k)*n)
-	for i:=0; i<n+k; i++ {
-		for j:=0; j<n; j++ {
+	flat_mat := make([]byte, 0, int(n+k)*int(n))
+	for i:=0; i<int(n+k); i++ {
+		for j:=0; j<int(n); j++ {
 			flat_mat = append(flat_mat, mat[i][j])
 		}
 	}
 	//fmt.Println("flat mat", flat_mat)
 	//fmt.Println("data", data)
 
-	// Potentially pad the data to be a multiple of local_dim1.
-	padding := (local_dim1 - (n_words%local_dim1)) % local_dim1
-	//fmt.Println("padding", padding)
-	padded_n_words := padding+n_words
-	//fmt.Println("padded n words", padded_n_words)
-
 	// Allocate go-side storage for loading the output from the OpenCL program.
-	output := make([]byte, (n+k)*(padded_n_words))
+	output := make([]byte, int(n+k)*n_words)
 	//fmt.Println("len output", len(output))
 
-	if err := c.runKernel("encode", flat_mat, data, output, byte(n), []int{n+k, padded_n_words}, []int{n+k, local_dim1}); err != nil{
+
+	if err := c.runKernel("encode", flat_mat, data, output, n, []int{int(n+k), n_words}, []int{1, 1}); err != nil{
 		return nil, u.WrapErr("enqueue kernel", err)
 	}
 
 	// Transform output into shard format.
 	//fmt.Println("gpu output", output)
-	enc := make([][]byte, n+k)
+	enc := make([][]byte, int(n+k))
 	//fmt.Println("n+k", n+k)
+	for i := range enc {
+		enc[i] = make([]byte, n_words)
+	}
 	//fmt.Println("enc dim:", len(enc), len(enc[0]))
 	for i := range enc {
-		enc[i] = output[i*padded_n_words:i*padded_n_words+n_words]
+		for word_ix:=0; word_ix<n_words; word_ix++ {
+			enc[i][word_ix] = output[i*n_words + word_ix]
+		}
 	}
 	//fmt.Println("sharded", enc)
 
@@ -213,16 +236,6 @@ func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byt
 	}
 
 	// Enqueue input buffers.
-	buf_exp_table, err := c.enqueueArr(c.exp_table)
-	if err != nil {
-		return u.WrapErr("enqueue exp_table", err)
-	}
-	defer buf_exp_table.Release()
-	buf_log_table, err := c.enqueueArr(c.log_table)
-	if err != nil {
-		return u.WrapErr("enqueue log_table", err)
-	}
-	defer buf_log_table.Release()
 	buf_mat, err := c.enqueueArr(mat)
 	if err != nil {
 		return u.WrapErr("enqueue mat", err)
@@ -241,9 +254,17 @@ func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byt
 	}
 	defer buf_output.Release()
 
-	// Set kernel args.
-	if err := kernel.SetArgs(buf_exp_table, buf_log_table, buf_mat, buf_data, n, buf_output); err != nil {
-		return u.WrapErr("set args", err)
+	if err := kernel.SetArg(2, buf_mat); err != nil {
+		return u.WrapErr("set arg buf_mat", err)
+	}
+	if err := kernel.SetArg(3, buf_data); err != nil {
+		return u.WrapErr("set arg buf_data", err)
+	}
+	if err := kernel.SetArg(4, n); err != nil {
+		return u.WrapErr("set arg n", err)
+	}
+	if err := kernel.SetArg(5, buf_output); err != nil {
+		return u.WrapErr("set arg buf_output", err)
 	}
 
 	// Enqueue kernel.

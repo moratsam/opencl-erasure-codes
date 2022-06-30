@@ -14,7 +14,7 @@ import (
 func main(){
 	fmt.Println("\n\n")
 	var err error
-	k, n := 3, 8
+	k, n := 0, 2
 	inpath := "in"
 	outpath := "out"
 	
