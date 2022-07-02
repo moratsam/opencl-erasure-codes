@@ -128,6 +128,12 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 	n := len(mat[0])
 	n_words := len(data[0])
 
+	// Potentially pad the data to be a multiple of local_dim1.
+	padding := (local_dim1 - (n_words%local_dim1)) % local_dim1
+	//fmt.Println("padding", padding)
+	padded_n_words := padding+n_words
+	//fmt.Println("padded n words", padded_n_words)
+
 	//fmt.Println("mat", mat)
 	// Flatten the inverted cauchy submatrix by appending rows.
 	flat_mat := make([]byte, 0, n*n)
@@ -140,22 +146,24 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 
 	//fmt.Println("data", data)
 	// Flatten the enc data from shards by appending rows (one shard after another).
-	flat_data := make([]byte, 0, n*n_words)
+	flat_data := make([]byte, 0, n*padded_n_words)
 	for i:=0; i<n; i++ {
 		flat_data = append(flat_data, data[i]...)
+		flat_data = append(flat_data, make([]byte, padding)...)
 	}
 	//fmt.Println("flat_data", flat_data)
 
 	// Allocate go-side storage for loading the output from the OpenCL program.
-	output := make([]byte, n*n_words)
+	output := make([]byte, n*padded_n_words)
 	//fmt.Println("len output", len(output))
 
-	if err := c.runKernel("decode", flat_mat, flat_data, output, byte(n), []int{n, n_words}, []int{n, 1}); err != nil{
+	if err := c.runKernel("decode", flat_mat, flat_data, output, byte(n), []int{n, padded_n_words}, []int{n, local_dim1}); err != nil{
 		return nil, u.WrapErr("enqueue kernel", err)
 	}
 
 	//fmt.Println("output", output)
-	return output, nil
+
+	return output[:n*n_words], nil
 }
 
 func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
