@@ -14,7 +14,7 @@ import (
 func main(){
 	fmt.Println("\n\n")
 	var err error
-	k, n := 3, 5
+	k, n := 3, 7
 	inpath := "in"
 	outpath := "out"
 	
@@ -24,12 +24,14 @@ func main(){
 	pu := vl.NewVanillaPU()
 	pu, err := cl.NewOpenCLPU()
 	check(err)
+
 	codec := codec.NewCodec(pu)
 	*/
 
 	pu, err := cl.NewStreamerPU()
 	check(err)
 	codec := codec.NewStreamerCodec(pu)
+
 
 	/*
 	// Encode
