@@ -14,17 +14,17 @@ import (
 func main(){
 	fmt.Println("\n\n")
 	var err error
-	k, n := 3, 7
+	k, n := 3, 5
 	inpath := "in"
 	outpath := "out"
 	
 	cl.NewOpenCLPU()
 	vl.NewVanillaPU()
-	/*
 	pu := vl.NewVanillaPU()
-	*/
+	/*
 	pu, err := cl.NewOpenCLPU()
 	check(err)
+	*/
 
 	codec := codec.NewCodec(pu)
 
