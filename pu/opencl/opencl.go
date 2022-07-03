@@ -30,6 +30,12 @@ type OpenCLPU struct {
 
 	exp_table	[]byte
 	log_table	[]byte
+
+	dec_data		[]byte
+	dec_out		[]byte
+
+	buf_exp_table *cl.MemObject
+	buf_log_table *cl.MemObject
 }
 
 func NewOpenCLPU() (*OpenCLPU, error) {
@@ -146,27 +152,33 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 
 	//fmt.Println("data", data)
 	// Flatten the enc data from shards by appending rows (one shard after another).
-	flat_data := make([]byte, 0, n*padded_n_words)
-	for i:=0; i<n; i++ {
-		flat_data = append(flat_data, data[i]...)
-		flat_data = append(flat_data, make([]byte, padding)...)
+	if cap(c.dec_data) == 0 {
+		c.dec_data = make([]byte, 0, n*padded_n_words)
+		c.dec_out = make([]byte, n*padded_n_words)
+	} else {
+		c.dec_data = c.dec_data[:0] // Reduce size but not cap.
 	}
-	//fmt.Println("flat_data", flat_data)
+	
+	for i:=0; i<n; i++ {
+		c.dec_data = append(c.dec_data, data[i]...)
+		c.dec_data = append(c.dec_data, make([]byte, padding)...)
+	}
+	//fmt.Println("c.dec_data", c.dec_data)
 
 	// Allocate go-side storage for loading the output from the OpenCL program.
-	output := make([]byte, n*padded_n_words)
+	//output := make([]byte, n*padded_n_words)
 	//fmt.Println("len output", len(output))
 
-	if err := c.runKernel("decode", flat_mat, flat_data, output, byte(n), []int{n, padded_n_words}, []int{n, local_dim1}); err != nil{
+	if err := c.runKernel("decode", flat_mat, c.dec_data, c.dec_out, byte(n), []int{n, padded_n_words}, []int{n, local_dim1}); err != nil{
 		return nil, u.WrapErr("enqueue kernel", err)
 	}
 
 	//fmt.Println("output", output)
 
-	return output[:n*n_words], nil
+	return c.dec_out[:n*n_words], nil
 }
 
-func (c *OpenCLPU) Encode(mat [][]byte, data[]byte) ([][]byte, error) {
+func (c *OpenCLPU) Encode(mat [][]byte, data []byte) ([][]byte, error) {
 	//fmt.Println("\n\n\n")
 	n := len(mat[0])
 	k := len(mat)-n

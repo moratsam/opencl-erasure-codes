@@ -1,7 +1,6 @@
 package vanilla
 
 import (
-	"fmt"
 	"sync"
 	
 	u "github.com/moratsam/opencl-erasure-codes/util"
@@ -60,7 +59,6 @@ func (v *VanillaPU) Decode(inv, enc [][]byte) ([]byte, error){
 		data = append(data, data_word...)
 	}
 
-	fmt.Println("data:", data)
 	return data, nil
 }
 
@@ -79,7 +77,6 @@ func decodeWord(inv [][]byte, enc []byte) []byte{
 		}
 	}
 
-	fmt.Println("w:", w)
 	data_word := make([]byte, dim)
 	for r:=dim-1; r>=0; r-- {
 		for j:=dim-1; j>=r; j-- {
