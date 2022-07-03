@@ -18,19 +18,25 @@ func main(){
 	inpath := "in"
 	outpath := "out"
 	
-	cl.NewOpenCLPU()
+	//cl.NewOpenCLPU()
 	vl.NewVanillaPU()
-	pu := vl.NewVanillaPU()
 	/*
+	pu := vl.NewVanillaPU()
 	pu, err := cl.NewOpenCLPU()
 	check(err)
+	codec := codec.NewCodec(pu)
 	*/
 
-	codec := codec.NewCodec(pu)
+	pu, err := cl.NewStreamerPU()
+	check(err)
+	codec := codec.NewStreamerCodec(pu)
 
+	/*
 	// Encode
 	err = codec.Encode(byte(k), byte(n), inpath)
 	check(err)
+	*/
+	_ = k
 
 	// Decode
 	shard_fnames := make([]string, int(n))

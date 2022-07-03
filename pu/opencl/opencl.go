@@ -1,9 +1,11 @@
 package opencl
 
+/*
 import (
 	_ "embed"
 	"fmt"
 	"unsafe"
+	"time"
 
 	"github.com/jgillich/go-opencl/cl"
 	"golang.org/x/xerrors"
@@ -34,8 +36,20 @@ type OpenCLPU struct {
 	dec_data		[]byte
 	dec_out		[]byte
 
-	buf_exp_table *cl.MemObject
-	buf_log_table *cl.MemObject
+	now, lmao, data_manipul_in, ker_total, enq_writ, enq_read, ker_proc time.Time
+}
+
+func (c *OpenCLPU) TellTime() {
+	fmt.Println("\n\n")
+	fmt.Println("data_manipul_in", c.data_manipul_in.Sub(time.Time{}))
+	fmt.Println("enq_writ", c.enq_writ.Sub(time.Time{}))
+	fmt.Println("lmao", c.lmao.Sub(time.Time{}))
+	fmt.Println("ker_proc", c.ker_proc.Sub(time.Time{}))
+	fmt.Println("enq_read", c.enq_read.Sub(time.Time{}))
+	fmt.Println("ker_total", c.ker_total.Sub(time.Time{}))
+	//fmt.Println("", .Sub(time.Time{}))
+	//fmt.Println("", .Sub(time.Time{}))
+	fmt.Println("\n\n")
 }
 
 func NewOpenCLPU() (*OpenCLPU, error) {
@@ -54,9 +68,9 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 	if len(devices) == 0 {
 		return nil, u.WrapErr("", xerrors.New("GetDevices returned 0 devices"))
 	}
-	/*
 	device := devices[0]
-	fmt.Println("i\nUsing device:")
+	/*
+	fmt.Println("\nUsing device:")
 
 	info := []struct{name string; value interface{}}{
 		{"name", device.Name()},
@@ -94,12 +108,13 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 		}(i.name, i.value)
 	}
 	*/
+	/*
 	// Create device context & command queue.
-	context, err := cl.CreateContext([]*cl.Device{devices[0]})
+	context, err := cl.CreateContext([]*cl.Device{device})
 	if err != nil {
 		return nil, u.WrapErr("create context", err)
 	}
-	queue, err := context.CreateCommandQueue(devices[0], 0)
+	queue, err := context.CreateCommandQueue(device, 0)
 	if err != nil {
 		return nil, u.WrapErr("create command queue", err)
 	}
@@ -134,6 +149,9 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 	n := len(mat[0])
 	n_words := len(data[0])
 
+	fmt.Println("running decode")
+	c.now = time.Now()
+
 	// Potentially pad the data to be a multiple of local_dim1.
 	padding := (local_dim1 - (n_words%local_dim1)) % local_dim1
 	//fmt.Println("padding", padding)
@@ -165,6 +183,9 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 	}
 	//fmt.Println("c.dec_data", c.dec_data)
 
+	c.data_manipul_in =c.data_manipul_in.Add(time.Since(c.now))
+	now := time.Now()
+
 	// Allocate go-side storage for loading the output from the OpenCL program.
 	//output := make([]byte, n*padded_n_words)
 	//fmt.Println("len output", len(output))
@@ -173,7 +194,13 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 		return nil, u.WrapErr("enqueue kernel", err)
 	}
 
+	c.ker_total =c.ker_total.Add(time.Since(now))
+
 	//fmt.Println("output", output)
+
+	if len(c.dec_data) < cap(c.dec_data) {
+		c.TellTime()
+	}
 
 	return c.dec_out[:n*n_words], nil
 }
@@ -232,6 +259,7 @@ func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byt
 		kernel = c.kernel_encode
 	}
 
+
 	// Enqueue input buffers.
 	buf_exp_table, err := c.enqueueArr(c.exp_table)
 	if err != nil {
@@ -248,11 +276,14 @@ func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byt
 		return u.WrapErr("enqueue mat", err)
 	}
 	defer buf_mat.Release()
+	c.now = time.Now()
 	buf_data, err := c.enqueueArr(data)
 	if err != nil {
 		return u.WrapErr("enqueue data", err)
 	}
 	defer buf_data.Release()
+
+	c.enq_writ=c.enq_writ.Add(time.Since(c.now))
 
 	// Create output buffer.
 	buf_output, err := c.context.CreateEmptyBuffer(cl.MemReadOnly, byte_size*len(output))
@@ -262,9 +293,11 @@ func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byt
 	defer buf_output.Release()
 
 	// Set kernel args.
-	if err := kernel.SetArgs(buf_exp_table, buf_log_table, buf_mat, buf_data, n, buf_output); err != nil {
+	if err := kernel.SetArgs(buf_exp_table, buf_log_table, buf_mat, buf_data, buf_output); err != nil {
 		return u.WrapErr("set args", err)
 	}
+
+	c.now = time.Now()
 
 	// Enqueue kernel.
 	if _, err := c.queue.EnqueueNDRangeKernel(kernel, nil, global_work_size, local_work_size, nil); err != nil {
@@ -276,11 +309,16 @@ func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byt
 		return u.WrapErr("enqueue kernel", err)
 	}
 
+	c.ker_proc =c.ker_proc.Add(time.Since(c.now))
+	c.now = time.Now()
+
 	// Copy data from OpenCL's output buffer to the go output array.
 	outputPtr := unsafe.Pointer(&output[0])
 	if _, err := c.queue.EnqueueReadBuffer(buf_output, true, 0, byte_size*len(output), outputPtr, nil); err != nil {
 		return u.WrapErr("reading data from buffer", err)
 	}
+
+	c.enq_read=c.enq_read.Add(time.Since(c.now))
 
 	return nil
 }
@@ -298,7 +336,9 @@ func (c *OpenCLPU) createKernel(name string) (*cl.Kernel, error) {
 		return nil, u.WrapErr("create program", err)
 	}
 
-	if err := program.BuildProgram(nil, ""); err != nil {
+	// TODO pass n here.
+	options := fmt.Sprintf("-DSIZE_N=5 -DMAX_LID1=%d", local_dim1)
+	if err := program.BuildProgram(nil, options); err != nil {
 		return nil, u.WrapErr("build program", err)
 	}
 	
@@ -324,3 +364,4 @@ func (c *OpenCLPU) enqueueArr(arr []byte) (*cl.MemObject, error) {
 
 	return buffer, nil
 }
+*/

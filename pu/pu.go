@@ -9,3 +9,9 @@ type PU interface {
 	Encode(cauchy [][]byte, data []byte) ([][]byte, error)
 }
 
+type StreamerPU interface {
+	InitDecoder(mat [][]byte) (chan []byte, error)
+	Decode([][]byte)
+	Encode([]byte)
+}
+
