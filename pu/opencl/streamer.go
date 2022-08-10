@@ -3,7 +3,6 @@ package opencl
 import (
 	"context"
 	"fmt"
-	"unsafe"
 
 	"github.com/jgillich/go-opencl/cl"
 	"github.com/moratsam/etherscan/pipeline"
@@ -54,43 +53,8 @@ func NewStreamerPU() (*Streamer, error) {
 		return nil, u.WrapErr("", xerrors.New("GetDevices returned 0 devices"))
 	}
 	device := devices[0]
-	fmt.Println("\nUsing device:")
+	printDeviceInfo(device)
 
-	info := []struct{name string; value interface{}}{
-		{"name", device.Name()},
-		{"type", device.Type()},
-		{"profile", device.Profile()},
-		{"vendor", device.Vendor()},
-		{"version", device.Version()},
-		{"driver version", device.DriverVersion()},
-		{"openCL C version", device.OpenCLCVersion()},
-		{"address bits", device.AddressBits()},
-		{"little endian", device.EndianLittle()},
-		{"extensions", device.Extensions()},
-		{"global mem cache size", device.GlobalMemCacheSize()},
-		{"global mem size", device.GlobalMemSize()},
-		{"local mem size", device.LocalMemSize()},
-		{"max clock frequency", device.MaxClockFrequency()},
-		{"max compute units", device.MaxComputeUnits()},
-		{"max constant buffer size", device.MaxConstantBufferSize()},
-		{"max mem alloc size", device.MaxMemAllocSize()},
-		{"max parameter size", device.MaxParameterSize()},
-		{"max work group size", device.MaxWorkGroupSize()},
-		{"max workitem dimensions", device.MaxWorkItemDimensions()},
-		{"max workitem sizes", device.MaxWorkItemSizes()},
-		{"native vector width char", device.NativeVectorWidthChar()},
-		{"native vector width double", device.NativeVectorWidthDouble()},
-		{"native vector width float", device.NativeVectorWidthFloat()},
-		{"native vector width int", device.NativeVectorWidthInt()},
-	}
-	for _,i := range info {
-		func(name string, out interface{}) {
-			switch out.(type) {
-				default:
-					fmt.Println("\t", name, ":", out)
-			}
-		}(i.name, i.value)
-	}
 	// Create device context & command queue.
 	context, err := cl.CreateContext([]*cl.Device{device})
 	if err != nil {
@@ -129,7 +93,7 @@ func (s *Streamer) Encode(chunk []byte) {
 func (s *Streamer) init(mat [][]byte, kernel_name string) error {
 	n := len(mat[0])
 	// Create kernel.
-	kernel, err := s.createKernel(kernel_name, n)
+	kernel, err := createKernel(kernel_name, n, s.context)
 	if err != nil {
 		return u.WrapErr("create kernel", err)
 	}
@@ -156,11 +120,11 @@ func (s *Streamer) init(mat [][]byte, kernel_name string) error {
 	exp_table, log_table := u.GetTables()
 
 	// Enqueue & Set the constant kernel args (exp_table, log_table and matrix).
-	buf_exp_table, err := s.enqueueArr(exp_table)
+	buf_exp_table, err := enqueueArr(exp_table, s.context, s.queue_write)
 	if err != nil {
 		return u.WrapErr("enqueue exp_table", err)
 	}
-	buf_log_table, err :=s.enqueueArr(log_table)
+	buf_log_table, err :=enqueueArr(log_table, s.context, s.queue_write)
 	if err != nil {
 		return u.WrapErr("enqueue log_table", err)
 	}
@@ -168,7 +132,7 @@ func (s *Streamer) init(mat [][]byte, kernel_name string) error {
 	for i:=0; i<n; i++ {
 		flat_mat = append(flat_mat, mat[i][:]...)
 	}
-	buf_mat, err := s.enqueueArr(flat_mat)
+	buf_mat, err := enqueueArr(flat_mat, s.context, s.queue_write)
 	if err != nil {
 		return u.WrapErr("enqueue mat", err)
 	}
@@ -200,45 +164,4 @@ func (s *Streamer) init(mat [][]byte, kernel_name string) error {
 	s.c_1d = make(chan []byte, 1)
 
 	return nil
-}
-
-func (s *Streamer) createKernel(name string, n int) (*cl.Kernel, error) {
-	var kernel_source string
-	if name == "decode" {
-		kernel_source = util_source + kernel_decode_source
-	} else {
-		kernel_source = util_source + kernel_encode_source
-	}
-
-	program, err := s.context.CreateProgramWithSource([]string{kernel_source})
-	if err != nil {
-		return nil, u.WrapErr("create program", err)
-	}
-
-	options := fmt.Sprintf("-DSIZE_N=%d -DMAX_LID1=%d", n, local_dim1)
-	if err := program.BuildProgram(nil, options); err != nil {
-		return nil, u.WrapErr("build program", err)
-	}
-	
-	kernel, err := program.CreateKernel(name)
-	if err != nil {
-		return nil, u.WrapErr("create kernel", err)
-	}
-
-	return kernel, nil
-}
-
-func (s *Streamer) enqueueArr(arr []byte) (*cl.MemObject, error) {
-	elem_size := int(unsafe.Sizeof(arr[0]))
-	ptr := unsafe.Pointer(&arr[0])
-	buffer, err := s.context.CreateEmptyBuffer(cl.MemReadOnly, elem_size*len(arr))
-	if err != nil {
-		return nil, u.WrapErr("create buffer", err)
-	}
-	_, err = s.queue_write.EnqueueWriteBuffer(buffer, true, 0, elem_size*len(arr), ptr, nil)
-	if err != nil {
-		return nil, u.WrapErr("enqueue buffer", err)
-	}
-
-	return buffer, nil
 }

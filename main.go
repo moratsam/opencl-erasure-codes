@@ -14,23 +14,30 @@ import (
 func main(){
 	fmt.Println("\n\n")
 	var err error
-	k, n := 9, 14
+	k, n := 6, 7
 	inpath := "in"
 	outpath := "out"
 	
-	//cl.NewOpenCLPU()
+	//cl.NewOpenCLPU(n)
 	vl.NewVanillaPU()
+	
+	//	VANILLA
 	/*
 	pu := vl.NewVanillaPU()
-	pu, err := cl.NewOpenCLPU()
+
+	// OPENCL STANDALONE
+	pu, err := cl.NewOpenCLPU(n)
 	check(err)
 
 	codec := codec.NewCodec(pu)
 	*/
 
+	// OPENCL STREAMER
 	pu, err := cl.NewStreamerPU()
 	check(err)
 	codec := codec.NewStreamerCodec(pu)
+	/*
+	*/
 
 
 	// Encode
