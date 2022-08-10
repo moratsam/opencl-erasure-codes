@@ -10,22 +10,23 @@ import (
 	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
+// Define the decoding source and sink, then assemble the decoding pipeline.
+
 type decSource struct { 
 	n int
 	local_dim1 int
 	c chan [][]byte
 }
-func (s *decSource) Error()	error		{ return nil }
-func (s *decSource) Next(_ context.Context)		bool 		{ return true }
+func (s *decSource) Error()						error	{ return nil }
+func (s *decSource) Next(_ context.Context)	bool	{ return true }
+// The decoding source receives chunks of encoded sharded data and loads them into a payload.
 func (s *decSource) Payload() pipeline.Payload {
 	data := <- s.c
 	n_words := len(data[0])
 
 	// Potentially pad the data to be a multiple of local_dim1.
 	padding := (s.local_dim1 - (n_words%s.local_dim1)) % s.local_dim1
-	//fmt.Println("padding", padding)
 	padded_n_words := padding+n_words
-	//fmt.Println("padded n words", padded_n_words)
 
 	p := payloadPool.Get().(*streamerPayload)
 	p.n = s.n
@@ -49,10 +50,11 @@ func (s *decSource) Payload() pipeline.Payload {
 }
 
 type decSink struct { c chan []byte }
+// The decoding sink makes a copy of the output data and sends it to the output channel.
 func (s *decSink) Consume(_ context.Context, payload pipeline.Payload) error {
+	fmt.Println("consuming")
 	p := payload.(*streamerPayload)
 
-	fmt.Println("consuming")
 	out := make([]byte, p.n*p.n_words)
 	copy(out, p.host_out)
 	s.c <- out

@@ -21,7 +21,7 @@ kernel void decode(global uchar *exp_table, global uchar *log_table, global ucha
 	*/
 
 	//calculate W := (L^-1)[enc_word]
-	local uchar w[MAX_LID1*SIZE_N]; // TODO pass SIZE_N as compile arg instead of hardcoding SIZE_N=4.
+	local uchar w[MAX_LID1*SIZE_N];
 	uchar res = 0;
 	for (int j=0; j<=lid0; j++) {
 		if (lid0 == j) { //diagonal values were overwritten in LU, but pretend they're still 1

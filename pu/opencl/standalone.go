@@ -1,6 +1,5 @@
 package opencl
 
-/*
 import (
 	_ "embed"
 	"fmt"
@@ -12,17 +11,6 @@ import (
 
 	u "github.com/moratsam/opencl-erasure-codes/util"
 )
-
-var (
-	//go:embed util.cl
-	util_source string
-	//go:embed kernel_encode.cl
-	kernel_encode_source string
-	//go:embed kernel_decode.cl
-	kernel_decode_source string
-)
-
-const local_dim1 int = 32;
 
 type OpenCLPU struct {
 	context			*cl.Context	
@@ -47,8 +35,6 @@ func (c *OpenCLPU) TellTime() {
 	fmt.Println("ker_proc", c.ker_proc.Sub(time.Time{}))
 	fmt.Println("enq_read", c.enq_read.Sub(time.Time{}))
 	fmt.Println("ker_total", c.ker_total.Sub(time.Time{}))
-	//fmt.Println("", .Sub(time.Time{}))
-	//fmt.Println("", .Sub(time.Time{}))
 	fmt.Println("\n\n")
 }
 
@@ -108,7 +94,6 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 		}(i.name, i.value)
 	}
 	*/
-	/*
 	// Create device context & command queue.
 	context, err := cl.CreateContext([]*cl.Device{device})
 	if err != nil {
@@ -130,11 +115,11 @@ func NewOpenCLPU() (*OpenCLPU, error) {
 	}
 
 	// Create kernels.
-	kernel_decode, err := pu.createKernel("decode")
+	kernel_decode, err := pu.createKernel("decode", 7)
 	if err != nil {
 		return nil, u.WrapErr("create decode kernel", err)
 	}
-	kernel_encode, err := pu.createKernel("encode")
+	kernel_encode, err := pu.createKernel("encode", 7)
 	if err != nil {
 		return nil, u.WrapErr("create encode kernel", err)
 	}
@@ -190,8 +175,8 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 	//output := make([]byte, n*padded_n_words)
 	//fmt.Println("len output", len(output))
 
-	if err := c.runKernel("decode", flat_mat, c.dec_data, c.dec_out, byte(n), []int{n, padded_n_words}, []int{n, local_dim1}); err != nil{
-		return nil, u.WrapErr("enqueue kernel", err)
+	if err := c.runKernel("decode", flat_mat, c.dec_data, c.dec_out, []int{n, padded_n_words}, []int{n, local_dim1}); err != nil{
+		return nil, u.WrapErr("run decode kernel", err)
 	}
 
 	c.ker_total =c.ker_total.Add(time.Since(now))
@@ -233,8 +218,8 @@ func (c *OpenCLPU) Encode(mat [][]byte, data []byte) ([][]byte, error) {
 	output := make([]byte, (n+k)*(padded_n_words))
 	//fmt.Println("len output", len(output))
 
-	if err := c.runKernel("encode", flat_mat, data, output, byte(n), []int{n+k, padded_n_words}, []int{n+k, local_dim1}); err != nil{
-		return nil, u.WrapErr("enqueue kernel", err)
+	if err := c.runKernel("encode", flat_mat, data, output, []int{n+k, padded_n_words}, []int{n+k, local_dim1}); err != nil{
+		return nil, u.WrapErr("run encode kernel", err)
 	}
 
 	// Transform output into shard format.
@@ -250,8 +235,8 @@ func (c *OpenCLPU) Encode(mat [][]byte, data []byte) ([][]byte, error) {
 	return enc, nil
 }
 
-func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byte, global_work_size, local_work_size []int) error {
-	byte_size := int(unsafe.Sizeof(n))
+func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, global_work_size, local_work_size []int) error {
+	byte_size := int(unsafe.Sizeof(byte(1)))
 	var kernel *cl.Kernel
 	if kernel_name == "decode" {
 		kernel = c.kernel_decode
@@ -306,7 +291,7 @@ func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byt
 
 	// Block until queue is finished.
 	if err := c.queue.Finish(); err != nil {
-		return u.WrapErr("enqueue kernel", err)
+		return u.WrapErr("waiting to finish kernel", err)
 	}
 
 	c.ker_proc =c.ker_proc.Add(time.Since(c.now))
@@ -323,7 +308,7 @@ func (c *OpenCLPU) runKernel(kernel_name string, mat, data, output []byte, n byt
 	return nil
 }
 
-func (c *OpenCLPU) createKernel(name string) (*cl.Kernel, error) {
+func (c *OpenCLPU) createKernel(name string, n int) (*cl.Kernel, error) {
 	var kernel_source string
 	if name == "decode" {
 		kernel_source = util_source + kernel_decode_source
@@ -336,8 +321,7 @@ func (c *OpenCLPU) createKernel(name string) (*cl.Kernel, error) {
 		return nil, u.WrapErr("create program", err)
 	}
 
-	// TODO pass n here.
-	options := fmt.Sprintf("-DSIZE_N=5 -DMAX_LID1=%d", local_dim1)
+	options := fmt.Sprintf("-DSIZE_N=%d -DMAX_LID1=%d", n, local_dim1)
 	if err := program.BuildProgram(nil, options); err != nil {
 		return nil, u.WrapErr("build program", err)
 	}
@@ -364,4 +348,5 @@ func (c *OpenCLPU) enqueueArr(arr []byte) (*cl.MemObject, error) {
 
 	return buffer, nil
 }
+/*
 */

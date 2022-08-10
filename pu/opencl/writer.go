@@ -19,6 +19,7 @@ func newWriter(dev_context *cl.Context, queue *cl.CommandQueue) *writer {
 	return &writer{ dev_context, queue }
 }
 
+// This step in the processing pipeline copies the input buffer from host onto the device.
 func (w *writer) Process(_ context.Context, payload pipeline.Payload) (pipeline.Payload, error) {
 	p := payload.(*streamerPayload)
 

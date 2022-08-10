@@ -18,6 +18,7 @@ func newKernelRunner(kernel *cl.Kernel, queue *cl.CommandQueue) *kernelRunner {
 	return &kernelRunner{kernel, queue }
 }
 
+// This step in the processing pipeline runs the kernel.
 func (k *kernelRunner) Process(_ context.Context, payload pipeline.Payload) (pipeline.Payload, error) {
 	p := payload.(*streamerPayload)
 

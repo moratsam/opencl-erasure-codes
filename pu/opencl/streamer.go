@@ -5,7 +5,6 @@ import (
 	_ "embed"
 	"fmt"
 	"unsafe"
-	"time"
 
 	"github.com/jgillich/go-opencl/cl"
 	"github.com/moratsam/etherscan/pipeline"
@@ -24,7 +23,7 @@ var (
 )
 
 const (
-	local_dim1	int = 32
+	local_dim1 int = 32
 )
 
 type Streamer struct {
@@ -33,9 +32,9 @@ type Streamer struct {
 
 	device			*cl.Device
 	context			*cl.Context	
-	queue_kernel		*cl.CommandQueue
-	queue_read		*cl.CommandQueue
-	queue_write		*cl.CommandQueue
+	queue_kernel	*cl.CommandQueue // Queue over which kernel commands are sent.
+	queue_read		*cl.CommandQueue // Queue over which read commands are sent.
+	queue_write		*cl.CommandQueue // Queue over which write commands are sent.
 	kernel 			*cl.Kernel
 
 	c_dec_in		chan [][]byte
@@ -46,33 +45,43 @@ type Streamer struct {
 	cl_buf_mat 			*cl.MemObject
 
 	pip *pipeline.Pipeline
-
-	now, lmao, data_manipul_in, ker_total, enq_writ, enq_read, ker_proc time.Time
 }
 
-func (s *Streamer) InitDecoder(mat [][]byte) (chan []byte, error) {
+func (s *Streamer) InitEncoder(mat [][]byte) (chan [][]byte, error) {
+	// Create in&out chans.
+	s.c_dec_in = make(chan [][]byte, 1)
+	s.c_dec_out = make(chan []byte, 1)
+
+	// Spawn decoder routine.
+	//go s.runDecode(context.Background(), local_dim1, n)
+
+	// Return channel over which decoded data will be returned.
+	return s.c_dec_in, nil
+}
+
+func (s *Streamer) init(mat [][]byte, kernel_name string) error {
 	n := len(mat)
 	// Create decode kernel.
 	kernel, err := s.createKernel("decode", n)
 	if err != nil {
-		return nil, u.WrapErr("create decode kernel", err)
+		return u.WrapErr("create decode kernel", err)
 	}
 	s.kernel = kernel
 
 	// Create queues.
 	queue_kernel, err := s.context.CreateCommandQueue(s.device, 0)
 	if err != nil {
-		return nil, u.WrapErr("create proc command queue", err)
+		return u.WrapErr("create proc command queue", err)
 	}
 	s.queue_kernel = queue_kernel
 	queue_read, err := s.context.CreateCommandQueue(s.device, 0)
 	if err != nil {
-		return nil, u.WrapErr("create read command queue", err)
+		return u.WrapErr("create read command queue", err)
 	}
 	s.queue_read = queue_read
 	queue_write, err := s.context.CreateCommandQueue(s.device, 0)
 	if err != nil {
-		return nil, u.WrapErr("create writ command queue", err)
+		return u.WrapErr("create writ command queue", err)
 	}
 	s.queue_write = queue_write
 
@@ -82,28 +91,28 @@ func (s *Streamer) InitDecoder(mat [][]byte) (chan []byte, error) {
 	// Enqueue & Set the constant kernel args (exp_table, log_table and inv matrix).
 	buf_exp_table, err := s.enqueueArr(exp_table)
 	if err != nil {
-		return nil, u.WrapErr("enqueue exp_table", err)
+		return u.WrapErr("enqueue exp_table", err)
 	}
 	buf_log_table, err :=s.enqueueArr(log_table)
 	if err != nil {
-		return nil, u.WrapErr("enqueue log_table", err)
+		return u.WrapErr("enqueue log_table", err)
 	}
-	flat_mat := make([]byte, 0, n*n)
+	flat_mat := make([]byte, 0, n*len(mat[0]))
 	for i:=0; i<n; i++ {
 		flat_mat = append(flat_mat, mat[i][:]...)
 	}
 	buf_mat, err := s.enqueueArr(flat_mat)
 	if err != nil {
-		return nil, u.WrapErr("enqueue mat", err)
+		return u.WrapErr("enqueue mat", err)
 	}
 	if err := kernel.SetArg(0, buf_exp_table); err != nil {
-		return nil, u.WrapErr("set arg exp_table", err)
+		return u.WrapErr("set arg exp_table", err)
 	}
 	if err := kernel.SetArg(1, buf_log_table); err != nil {
-		return nil, u.WrapErr("set arg log_table", err)
+		return u.WrapErr("set arg log_table", err)
 	}
 	if err := kernel.SetArg(2, buf_mat); err != nil {
-		return nil, u.WrapErr("set arg mat", err)
+		return u.WrapErr("set arg mat", err)
 	}
 	s.cl_buf_exp_table = buf_exp_table
 	s.cl_buf_log_table = buf_log_table
@@ -123,8 +132,16 @@ func (s *Streamer) InitDecoder(mat [][]byte) (chan []byte, error) {
 	s.c_dec_in = make(chan [][]byte, 1)
 	s.c_dec_out = make(chan []byte, 1)
 
+	return nil
+}
+
+func (s *Streamer) InitDecoder(mat [][]byte) (chan []byte, error) {
+	n := len(mat)
+	s.init(mat, "decode")
+	// Spawn decoder routine.
 	go s.runDecode(context.Background(), local_dim1, n)
 
+	// Return channel over which decoded data will be returned.
 	return s.c_dec_out, nil
 }
 

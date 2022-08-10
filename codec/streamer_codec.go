@@ -3,12 +3,12 @@ package codec
 import (
 	"fmt"
 	"os"
-	_"strconv"
+	"strconv"
 	"time"
 
 	"github.com/moratsam/opencl-erasure-codes/io"
 	proc_unit "github.com/moratsam/opencl-erasure-codes/pu"
-	_ "github.com/moratsam/opencl-erasure-codes/util"
+	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
 type StreamerCodec struct{
@@ -19,7 +19,6 @@ func NewStreamerCodec(pu proc_unit.StreamerPU) *StreamerCodec {
 }
 
 func (c *StreamerCodec) Encode(k, n byte, filepath string) error {
-	/*
 	chunk_size := int64(n)*CHUNK_SIZE
 	// Open input file.
 	f, err := io.OpenFile(filepath)
@@ -53,9 +52,44 @@ func (c *StreamerCodec) Encode(k, n byte, filepath string) error {
 		return err
 	}
 
-	var now, proc, read, writ time.Time
-	for cnt:=0;;cnt++{
-		now = time.Now()
+	// Receive channel over which the encoded data will be sent by the encoding streamer.
+	c_data, err := c.pu.InitEncoder(mat)
+	if err != nil {
+		return err
+	}
+
+	// Separate routine receives encoded data from the streamer and writes it to the shards.
+	c_num := make(chan int, 1)
+	c_done := make(chan struct{}, 1)
+	go func(){
+		cnt := 0
+		max_cnt := -1
+		for {
+			select {
+			case max_cnt = <- c_num:
+				fmt.Println("max cnt", max_cnt)
+			case enc := <- c_data:
+				fmt.Println("encced data cnt", cnt)
+
+				// Write chunk to the shards.
+				if err := toShards(shards, enc); err != nil {
+					fmt.Println("dec file write", err)
+					return
+				}
+				cnt++
+			}
+			if cnt == max_cnt {
+				fmt.Println("all chunks written to disk")
+				c_done <- struct{}{}
+				return
+			}
+		}
+	}()
+
+	var now, enc time.Time
+	now = time.Now()
+	var cnt int
+	for cnt=0;;cnt++{
 		// Read chunk of input file.
 		var chunk []byte
 		if cnt == 0 { // First chunk may need to be padded. 
@@ -70,27 +104,16 @@ func (c *StreamerCodec) Encode(k, n byte, filepath string) error {
 		if len(chunk) == 0 { // EOF
 			break
 		}
-		read=read.Add(time.Since(now))
-		now = time.Now()
 
 		// Encode chunk.
-		enc, err := c.pu.Encode(mat, chunk)
-		if err != nil {
-			return err
-		}
-		proc=proc.Add(time.Since(now))
-
-		now = time.Now()
-		// Write it to shards.
-		if err := toShards(shards, enc); err != nil {
-			return err
-		}
-		writ=writ.Add(time.Since(now))
+		c.pu.Encode(chunk)
 	}
-	fmt.Println("\nenc read", read.Sub(time.Time{}))
-	fmt.Println("enc proc", proc.Sub(time.Time{}))
-	fmt.Println("enc writ", writ.Sub(time.Time{}))
-	*/
+	c_num <- cnt
+	<-c_done
+	
+	enc = enc.Add(time.Since(now))
+	fmt.Println("\nenc", enc.Sub(time.Time{}))
+
 	return nil
 }
 
@@ -117,11 +140,13 @@ func (c *StreamerCodec) Decode(shard_paths []string, outpath string) error {
 	}
 	defer f.Close()
 
+	// Receive channel over which the decoded data will be sent by the decoding streamer.
 	c_data, err := c.pu.InitDecoder(mat)
 	if err != nil {
 		return err
 	}
 
+	// Separate routine receives decoded data from the streamer and writes it to a file.
 	c_num := make(chan int, 1)
 	c_done := make(chan struct{}, 1)
 	go func(){
@@ -129,9 +154,9 @@ func (c *StreamerCodec) Decode(shard_paths []string, outpath string) error {
 		max_cnt := -1
 		for {
 			select {
-				case max_cnt = <- c_num:
-					fmt.Println("max cnt", max_cnt)
-				case dec := <- c_data:
+			case max_cnt = <- c_num:
+				fmt.Println("max cnt", max_cnt)
+			case dec := <- c_data:
 				fmt.Println("decced data", cnt)
 
 				// Remove padding from first decoded chunk.
@@ -153,12 +178,12 @@ func (c *StreamerCodec) Decode(shard_paths []string, outpath string) error {
 		}
 	}()
 
-	var now, proc, read, writ time.Time
+	var now, dec time.Time
+	now = time.Now()
 	var cnt int
 	stop:
 	for cnt=0;;cnt++{
 		// Read chunk of sharded data.
-		now = time.Now()
 		chunk := make([][]byte, len(shards))
 		for i,shard := range shards {
 			chunk[i], err = io.ReadFrom(shard, chunk_size)
@@ -169,17 +194,15 @@ func (c *StreamerCodec) Decode(shard_paths []string, outpath string) error {
 				break stop
 			}
 		}
-		read=read.Add(time.Since(now))
-		now = time.Now()
 
 		// Decode chunk.
 		c.pu.Decode(chunk)
 	}
 	c_num <- cnt
 	<-c_done
-	fmt.Println("\ndec read", read.Sub(time.Time{}))
-	fmt.Println("dec proc", proc.Sub(time.Time{}))
-	fmt.Println("dec writ", writ.Sub(time.Time{}))
+	
+	dec=dec.Add(time.Since(now))
+	fmt.Println("\ndec", dec.Sub(time.Time{}))
 
 	return nil
 }
