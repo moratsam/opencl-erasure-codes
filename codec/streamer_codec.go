@@ -67,19 +67,15 @@ func (c *StreamerCodec) Encode(k, n byte, filepath string) error {
 		for {
 			select {
 			case max_cnt = <- c_num:
-				fmt.Println("max cnt", max_cnt)
 			case enc := <- c_data:
-				fmt.Println("encced data cnt", cnt)
-
 				// Write chunk to the shards.
 				if err := toShards(shards, enc); err != nil {
-					fmt.Println("dec file write", err)
+					panic(u.WrapErr("enc file write", err))
 					return
 				}
 				cnt++
 			}
 			if cnt == max_cnt {
-				fmt.Println("all chunks written to disk")
 				c_done <- struct{}{}
 				return
 			}
@@ -112,7 +108,7 @@ func (c *StreamerCodec) Encode(k, n byte, filepath string) error {
 	<-c_done
 	
 	enc = enc.Add(time.Since(now))
-	fmt.Println("\nenc", enc.Sub(time.Time{}))
+	fmt.Println("\nencode time:", enc.Sub(time.Time{}))
 
 	return nil
 }
@@ -155,23 +151,19 @@ func (c *StreamerCodec) Decode(shard_paths []string, outpath string) error {
 		for {
 			select {
 			case max_cnt = <- c_num:
-				fmt.Println("max cnt", max_cnt)
 			case dec := <- c_data:
-				fmt.Println("decced data", cnt)
-
 				// Remove padding from first decoded chunk.
 				if cnt == 0 {
 					dec = dec[padding:]
 				}
 				// Write chunk to the output file.
 				if err := io.WriteTo(f, dec); err != nil {
-					fmt.Println("dec file write", err)
+					panic(u.WrapErr("dec file write", err))
 					return
 				}
 				cnt++
 			}
 			if cnt == max_cnt {
-				fmt.Println("all chunks written to disk")
 				c_done <- struct{}{}
 				return
 			}
@@ -202,7 +194,7 @@ func (c *StreamerCodec) Decode(shard_paths []string, outpath string) error {
 	<-c_done
 	
 	dec=dec.Add(time.Since(now))
-	fmt.Println("\ndec", dec.Sub(time.Time{}))
+	fmt.Println("\ndecode time:", dec.Sub(time.Time{}))
 
 	return nil
 }

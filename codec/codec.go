@@ -11,8 +11,6 @@ import (
 	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
-const CHUNK_SIZE = 32*100000
-
 
 type Codec struct{
 	pu	proc_unit.PU

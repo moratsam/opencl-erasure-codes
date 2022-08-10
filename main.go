@@ -14,7 +14,7 @@ import (
 func main(){
 	fmt.Println("\n\n")
 	var err error
-	k, n := 3, 7
+	k, n := 9, 14
 	inpath := "in"
 	outpath := "out"
 	
@@ -33,11 +33,9 @@ func main(){
 	codec := codec.NewStreamerCodec(pu)
 
 
-	/*
 	// Encode
 	err = codec.Encode(byte(k), byte(n), inpath)
 	check(err)
-	*/
 	_ = k
 
 	// Decode

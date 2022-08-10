@@ -1,7 +1,6 @@
 package opencl
 
 import (
-	_ "embed"
 	"fmt"
 	"unsafe"
 	"time"
