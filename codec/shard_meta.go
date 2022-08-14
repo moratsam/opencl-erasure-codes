@@ -1,6 +1,7 @@
 package codec
 
 import (
+	"fmt"
 	"os"
 	"sort"
 
@@ -70,13 +71,13 @@ func toShards(shards []*os.File, data [][]byte) error {
 // The cauchy rows and the shards need to be sorted in increasing order based on row indices.
 // Sorts the input array based on row indices.
 // Returns values for n and padding and the inverse cauchy matrix.
-func metaFromShards(shards []*os.File) (byte, byte, [][]byte, error){
-	row_ixs := make([]int, 0, len(shards)) // Contains the cauchy_row indices of shards.
+func metaFromShards(shards *[]*os.File) (byte, byte, [][]byte, error){
+	row_ixs := make([]int, 0, len(*shards)) // Contains the cauchy_row indices of shards.
 	row_to_shard_ix := make(map[int]int)	// [row_ix] -> index of shard in shards input array.
-	shard_metas := make([]shardMeta, 0, len(shards)) // shardMetas for shards in input array.
+	shard_metas := make([]shardMeta, 0, len(*shards)) // shardMetas for shards in input array.
 
 	// Get shard metas, fill up the maps and arrs which will be used to sort the Shards.
-	for i,f := range shards {
+	for i,f := range *shards {
 		sm, err := readShardMeta(f)
 		if err != nil {
 			return 0, 0, nil, err
@@ -90,6 +91,11 @@ func metaFromShards(shards []*os.File) (byte, byte, [][]byte, error){
 	sort.Ints(row_ixs)
 
 	n := shard_metas[0].n					// Is the same for all shards.
+	if len(*shards) != int(n) {
+		err := u.CreateErr(fmt.Sprintf("%d shards required to reconstruct original data.", n))
+		return 0, 0, nil, err
+	}
+
 	padding := shard_metas[0].padding	// Is the same for all shards.
 
 	// Construct the cauchy submatrix by stacking cauchy_rows from sorted shard_metas.
@@ -104,11 +110,11 @@ func metaFromShards(shards []*os.File) (byte, byte, [][]byte, error){
 
 	// Sort input array of shards.
 	sorted_shards := make([]*os.File, n)
-	for i := range shards {
+	for i := range *shards {
 		shard_ix := row_to_shard_ix[row_ixs[i]]
-		sorted_shards[i] = shards[shard_ix]
+		sorted_shards[i] = (*shards)[shard_ix]
 	}
-	shards = sorted_shards
+	*shards = sorted_shards
 
 	return n, padding, inv, nil
 }

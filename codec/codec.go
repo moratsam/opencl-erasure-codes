@@ -12,14 +12,19 @@ import (
 )
 
 
-type Codec struct{
-	pu	proc_unit.PU
-}
-func NewCodec(pu proc_unit.PU) *Codec {
-	return &Codec{pu}
+type Codec interface {
+	Decode(shard_paths []string, outpath string) error
+	Encode(k, n byte, filepath string) error
 }
 
-func (c *Codec) Encode(k, n byte, filepath string) error {
+type codec struct{
+	pu	proc_unit.PU
+}
+func NewCodec(pu proc_unit.PU) *codec {
+	return &codec{pu}
+}
+
+func (c *codec) Encode(k, n byte, filepath string) error {
 	chunk_size := int64(n)*CHUNK_SIZE
 	// Open input file.
 	f, err := io.OpenFile(filepath)
@@ -93,7 +98,7 @@ func (c *Codec) Encode(k, n byte, filepath string) error {
 	return nil
 }
 
-func (c *Codec) Decode(shard_paths []string, outpath string) error {
+func (c *codec) Decode(shard_paths []string, outpath string) error {
 	var err error
 	// Open shards.
 	shards := make([]*os.File, len(shard_paths))
@@ -106,7 +111,10 @@ func (c *Codec) Decode(shard_paths []string, outpath string) error {
 	}
 
 	// Read metadata from shards.
-	n, padding, mat, err := metaFromShards(shards)
+	n, padding, mat, err := metaFromShards(&shards)
+	if err != nil {
+		return err
+	}
 	chunk_size := int64(n)*CHUNK_SIZE
 
 	// Create out file for decoded data.

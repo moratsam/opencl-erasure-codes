@@ -128,9 +128,9 @@ func (s *Streamer) init(mat [][]byte, kernel_name string) error {
 	if err != nil {
 		return u.WrapErr("enqueue log_table", err)
 	}
-	flat_mat := make([]byte, 0, n*len(mat[0]))
-	for i:=0; i<n; i++ {
-		flat_mat = append(flat_mat, mat[i][:]...)
+	flat_mat := make([]byte, 0, n*len(mat))
+	for i:=0; i<len(mat); i++ {
+		flat_mat = append(flat_mat, mat[i]...)
 	}
 	buf_mat, err := enqueueArr(flat_mat, s.context, s.queue_write)
 	if err != nil {

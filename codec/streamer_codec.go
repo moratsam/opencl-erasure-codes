@@ -11,14 +11,14 @@ import (
 	u "github.com/moratsam/opencl-erasure-codes/util"
 )
 
-type StreamerCodec struct{
+type streamerCodec struct{
 	pu	proc_unit.StreamerPU
 }
-func NewStreamerCodec(pu proc_unit.StreamerPU) *StreamerCodec {
-	return &StreamerCodec{pu}
+func NewStreamerCodec(pu proc_unit.StreamerPU) *streamerCodec {
+	return &streamerCodec{pu}
 }
 
-func (c *StreamerCodec) Encode(k, n byte, filepath string) error {
+func (c *streamerCodec) Encode(k, n byte, filepath string) error {
 	chunk_size := int64(n)*CHUNK_SIZE
 	// Open input file.
 	f, err := io.OpenFile(filepath)
@@ -113,7 +113,7 @@ func (c *StreamerCodec) Encode(k, n byte, filepath string) error {
 	return nil
 }
 
-func (c *StreamerCodec) Decode(shard_paths []string, outpath string) error {
+func (c *streamerCodec) Decode(shard_paths []string, outpath string) error {
 	var err error
 	// Open shards.
 	shards := make([]*os.File, len(shard_paths))
@@ -126,7 +126,7 @@ func (c *StreamerCodec) Decode(shard_paths []string, outpath string) error {
 	}
 
 	// Read metadata from shards.
-	n, padding, mat, err := metaFromShards(shards)
+	n, padding, mat, err := metaFromShards(&shards)
 	chunk_size := int64(n)*CHUNK_SIZE
 
 	// Create out file for decoded data.

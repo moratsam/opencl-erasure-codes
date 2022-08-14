@@ -22,9 +22,9 @@ type pipelineConfig struct {
 
 func assemblePipeline(cfg pipelineConfig) *pipeline.Pipeline {
 	return pipeline.New(
-		pipeline.DynamicWorkerPool(newWriter(cfg.dev_context, cfg.queue_write), 1),
+		pipeline.FixedWorkerPool(newWriter(cfg.dev_context, cfg.queue_write), 1),
 		pipeline.FIFO(newKernelRunner(cfg.kernel, cfg.queue_kernel)),
-		pipeline.DynamicWorkerPool(newReader(cfg.queue_read), 1),
+		pipeline.FixedWorkerPool(newReader(cfg.queue_read), 1),
 	)
 }
 

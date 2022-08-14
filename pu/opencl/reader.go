@@ -22,7 +22,7 @@ func newReader(queue *cl.CommandQueue) *reader {
 func (r *reader) Process(_ context.Context, payload pipeline.Payload) (pipeline.Payload, error) {
 	p := payload.(*streamerPayload)
 
-	byte_size := int(unsafe.Sizeof(p.host_in[0]))
+	byte_size := int(unsafe.Sizeof(byte(1)))
 	// Read output from device onto the host.
 	ptr := unsafe.Pointer(&p.host_out[0])
 	_, err := r.queue.EnqueueReadBuffer(p.cl_buf_out, true, 0, byte_size*len(p.host_out), ptr, nil)
