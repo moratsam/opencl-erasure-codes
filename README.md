@@ -3,8 +3,13 @@
 ## The repo provides vanilla and OpenCL (GPU) implementations of the Reed-Solomon erasure coding over the Galois field GF(2^8).
 
 Use it with the binary `erco`:
-
-* ./erco encode --k=7 --n=3 --input=some_file # Encodes some_file into 10 shards such that any 3 will be sufficient to retrieve some_file.
+* ./erco encode --k=7 --n=3 --input=some_file # Encodes some_file into 10 shards such that any 3 will be sufficient to reconstruct some_file.
+* ./erco decode --shards=some_file_1.enc,some_file_7.enc,some_file_0.enc --output=reconstructed_file # Reconstruct the file from any 3 shards.
+* ./erco -i=file -o=out # Make a full encode-decode run of 'file' and save it to 'out'
+* You can choose between three processors with the --proc flag:
+	* --proc=standalone: (default), a standalone OpenCL implementation.
+	* --proc=streamer: An OpenCL implementation using a pipeline to optimize GPU read, write and processing operations.
+	* --proc=vanilla: A non-OpenCL implementation running on the CPU.
 
  
 ## The README mostly delves into the mathematical background of the project, including:

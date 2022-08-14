@@ -18,9 +18,6 @@ type OpenCLPU struct {
 
 	exp_table	[]byte
 	log_table	[]byte
-
-	dec_data		[]byte
-	dec_out		[]byte
 }
 
 func NewOpenCLPU(n int) (*OpenCLPU, error) {
@@ -62,16 +59,11 @@ func NewOpenCLPU(n int) (*OpenCLPU, error) {
 		log_table:	log_table,
 	}
 
-	// Create kernels.
-	kernel_decode, err := createKernel("decode", n, pu.context)
-	if err != nil {
-		return nil, u.WrapErr("create decode kernel", err)
-	}
+	// Create encode kernel.
 	kernel_encode, err := createKernel("encode", n, pu.context)
 	if err != nil {
 		return nil, u.WrapErr("create encode kernel", err)
 	}
-	pu.kernel_decode = kernel_decode
 	pu.kernel_encode = kernel_encode
 
 	return pu, nil
@@ -81,6 +73,13 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 	n := len(mat[0])
 	n_words := len(data[0])
 
+	// Create kernel with correct n.
+	kernel_decode, err := createKernel("decode", n, c.context)
+	if err != nil {
+		return nil, u.WrapErr("create decode kernel", err)
+	}
+	c.kernel_decode = kernel_decode
+
 	// Potentially pad the data to be a multiple of local_dim1.
 	padding := (local_dim1 - (n_words%local_dim1)) % local_dim1
 	padded_n_words := padding+n_words
@@ -88,29 +87,23 @@ func (c *OpenCLPU) Decode(mat, data [][]byte) ([]byte, error) {
 	// Flatten the inverted cauchy submatrix by appending rows.
 	flat_mat := make([]byte, 0, n*n)
 	for i:=0; i<n; i++ {
-		for j:=0; j<n; j++ {
-			flat_mat = append(flat_mat, mat[i][j])
-		}
+		flat_mat = append(flat_mat, mat[i]...)
 	}
 
 	// Flatten the enc data from shards by appending rows (one shard after another).
-	if cap(c.dec_data) == 0 {
-		c.dec_data = make([]byte, 0, n*padded_n_words)
-		c.dec_out = make([]byte, n*padded_n_words)
-	} else {
-		c.dec_data = c.dec_data[:0] // Reduce size but not cap.
-	}
+	flat_data := make([]byte, 0, n*padded_n_words)
+	output := make([]byte, n*padded_n_words)
 	
 	for i:=0; i<n; i++ {
-		c.dec_data = append(c.dec_data, data[i]...)
-		c.dec_data = append(c.dec_data, make([]byte, padding)...)
+		flat_data = append(flat_data, data[i]...)
+		flat_data = append(flat_data, make([]byte, padding)...)
 	}
 
-	if err := c.runKernel("decode", flat_mat, c.dec_data, c.dec_out, []int{n, padded_n_words}, []int{n, local_dim1}); err != nil{
+	if err := c.runKernel("decode", flat_mat, flat_data, output, []int{n, padded_n_words}, []int{n, local_dim1}); err != nil{
 		return nil, u.WrapErr("run decode kernel", err)
 	}
 
-	return c.dec_out[:n*n_words], nil
+	return output[:n*n_words], nil
 }
 
 func (c *OpenCLPU) Encode(mat [][]byte, data []byte) ([][]byte, error) {

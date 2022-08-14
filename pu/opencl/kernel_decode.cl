@@ -3,22 +3,6 @@ kernel void decode(global uchar *exp_table, global uchar *log_table, global ucha
 	int lid1 = get_local_id(1);
 	int gid1 = get_global_id(1);
 	int max_gid1 = get_global_size(1);
-	/*
-	if (gid1==1) {
-		printf("\nlol: %d\n", SIZE_N);
-		printf("lmao: %d\n", inv[SIZE_N+1]);
-		printf("kek: %d\n", data[SIZE_N*gid1]);
-		printf("max gid1: %d\n\n", max_gid1);
-	}
-
-	if (gid1==1){
-		printf("enc word: [");
-		for(int i=0; i<SIZE_N; i++) {
-			printf("%d ", data[gid1+i*max_gid1]);
-		}
-		printf("]\n");
-	}
-	*/
 
 	//calculate W := (L^-1)[enc_word]
 	local uchar w[MAX_LID1*SIZE_N];
@@ -34,31 +18,11 @@ kernel void decode(global uchar *exp_table, global uchar *log_table, global ucha
 
 	barrier(CLK_LOCAL_MEM_FENCE);
 
-	/*
-	if (gid1==1){
-		printf("w: [");
-		for(int i=0; i<SIZE_N; i++) {
-			printf("%d ", w[i]);
-		}
-		printf("]\n");
-	}
-	*/
-
 	res = 0;
 	for (int j=SIZE_N-1; j>=lid0; j--) {
 		res = add(res, mul(inv[j+SIZE_N*lid0], w[SIZE_N*lid1+j], exp_table, log_table));
 	}
 	output[lid0+SIZE_N*gid1] = res;
-
-	/*
-	if (gid1==1){
-		printf("data word: [");
-		for(int i=0; i<SIZE_N; i++) {
-			printf("%d ", output[gid1+i*max_gid1]);
-		}
-		printf("]\n");
-	}
-	*/
 }
 
 
